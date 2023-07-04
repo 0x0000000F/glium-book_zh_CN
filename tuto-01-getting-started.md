@@ -38,7 +38,7 @@ fn main() {
 
 使用glutin初始化OpenGL窗口需要经过如下几步:  
 
-1. 创建 `EventsLoop` 用于处理窗口和设备的事件.  
+1. 创建 `EventsLoop<T>` 用于处理窗口和设备的事件.  
 2. 使用 `glium::glutin::WindowBuilder::new()` 指定窗口的参数. 这些参数与OpenGL无关, 而是窗口特有的属性.   
 3. 使用`glium::glutin::ContextBuilder::new()`指定上下文(Context)参数. 我们可以在这里设置OpenGL特定的属性, 例如垂直同步与多重采样.    
 4. 创建OpenGL窗口(在glium中称为 `Display`):  
@@ -49,7 +49,7 @@ fn main() {
 fn main() {
     use glium::glutin;
 
-    let mut events_loop = glutin::EventsLoop::new();
+    let mut events_loop = glutin::event_loop::EventsLoop::new();
     let window = glutin::WindowBuilder::new();
     let context = glutin::ContextBuilder::new();
     let display = glium::Display::new(window, context, &events_loop).unwrap();
@@ -59,24 +59,36 @@ fn main() {
 但是有一个问题: 在窗口创建完成时, 我们的main函数就退出了, 导致 `display` 的析构函数关闭了窗口. 为了避免这个问题, 我们需要创建一个无限循环, 直到收到 `CloseRequested` 事件为止:  
 
 ```rust
-let mut closed = false;
-while !closed {
-    // 列出由应用生成的事件并等待接收
-    events_loop.poll_events(|ev| {
+events_loop.run(move |ev, _, control_flow| {
+        let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(16_666_667);
+        *control_flow = glutin::event_loop::ControlFlow::WaitUntil(next_frame_time);
         match ev {
-            glutin::Event::WindowEvent { event, .. } => match event {
-                glutin::WindowEvent::CloseRequested => closed = true,
-                _ => (),
+            glutin::event::Event::WindowEvent { event, .. } => match event {
+                glutin::event::WindowEvent::CloseRequested => {
+                    *control_flow = glutin::event_loop::ControlFlow::Exit;
+                    return;
+                }
+                _ => return,
             },
             _ => (),
         }
     });
-}
 ```
 
 虽然, 这段代码将导致CPU占用率达到100%, 但是已经解决了上面所说的问题. 在实际的应用程序中, 你应当使用垂直同步或者在每次循环结束时sleep几毫秒, 不过这是之后要考虑的事了.  
 
 你现在可以运行 `cargo run`. 在Cargo下载完glium及其依赖并编译好之后, 你就能看见一个还过得去的小窗口了.  
+
+### 开启垂直同步
+
+上述程序会导致CPU占用达到100%是因为没有限制窗口的渲染帧率, 导致程序尽力渲染尽可能高的帧数, 想要使占用率降低, 可以开启垂直同步限制渲染的帧数, 以节约CPU资源
+具体做法:
+
+```rust
+let cb = glium::glutin::ContextBuilder::new().with_vsync(true);
+```
+
+在创建Opengl Context(OpenGL上下文)中设置Vsync开启即可
 
 ### 清除颜色
 
@@ -118,26 +130,33 @@ target.finish().unwrap();
 fn main() {
     use glium::{glutin, Surface};
 
-    let mut events_loop = glium::glutin::EventsLoop::new();
+    let mut events_loop = glium::glutin::event_loop::EventsLoop::new();
     let window = glium::glutin::WindowBuilder::new();
     let context = glium::glutin::ContextBuilder::new();
     let display = glium::Display::new(window, context, &events_loop).unwrap();
 
-    let mut closed = false;
-    while !closed {
+    // 事件循环
+    events_loop.run(move |ev, _, control_flow| {
+        // 对屏幕进行渲染
         let mut target = display.draw();
-        target.clear_color(0.0, 0.0, 1.0, 1.0);
+        target.clear_color(0.4, 0.5, 0.8, 0.8);
         target.finish().unwrap();
 
-        events_loop.poll_events(|ev| {
-            match ev {
-                glutin::Event::WindowEvent { event, .. } => match event {
-                    glutin::WindowEvent::CloseRequested => closed = true,
-                    _ => (),
-                },
-                _ => (),
-            }
-        });
-    }
+        // 这里的定时器不知何意, 在垂直同步开启, 同时在事件循环中插入渲染, 会导致窗口不能响应
+        // 猜测为手动控制帧生成量 1000ms / 60 = 16.666667ms 为每帧的帧生成时间, 不过英文原版使用的使from_nano()也就是纳秒 有明白的希望可以指正
+        let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(16_666_667);
+        *control_flow = glutin::event_loop::ControlFlow::WaitUntil(next_frame_time);
+
+        match ev {
+            glutin::event::Event::WindowEvent { event, .. } => match event {
+                glutin::event::WindowEvent::CloseRequested => {
+                    *control_flow = glutin::event_loop::ControlFlow::Exit;
+                    return;
+                }
+                _ => return,
+            },
+            _ => (),
+        }
+    });
 }
 ```
