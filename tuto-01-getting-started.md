@@ -90,6 +90,8 @@ let cb = glium::glutin::ContextBuilder::new().with_vsync(true);
 
 在创建Opengl Context(OpenGL上下文)中设置Vsync开启即可
 
+!注意!:垂直同步在没有渲染之前都是正常的, 在将渲染代码丢入事件循环后, 会使得整个窗口卡死, 在AMD的核显与Nvidia GTX系列显卡上都有同样的问题, 原生调用Opengl垂直同步不会出现此问题, 猜测是glium库对于Opengl垂直同步API包装有错误
+
 ### 清除颜色
 
 然而, 窗口里的内容并不怎么吸引人. 它也许是一片空白, 或者是一张随机的图片, 也可能是一些雪花, 这取决于你使用什么系统. 我们需要在窗口内绘制图形, 因此系统并不需要将窗口内的颜色初始化为某个特定的值.  
@@ -142,8 +144,9 @@ fn main() {
         target.clear_color(0.4, 0.5, 0.8, 0.8);
         target.finish().unwrap();
 
-        // 这里的定时器不知何意, 在垂直同步开启, 同时在事件循环中插入渲染, 会导致窗口不能响应
-        // 猜测为手动控制帧生成量 1000ms / 60 = 16.666667ms 为每帧的帧生成时间, 不过英文原版使用的使from_nano()也就是纳秒 有明白的希望可以指正
+        // 这里为手动控制帧速率, 1s = 1000000000 nanos 1000000000 / 60 = 16666667 nanos每帧, 这里使用的是纳秒
+        // 这里也可以使用ms(毫秒)来得到帧生成时间为16.666667, 但是更推荐更小一级的单位, 首先它的数据长度和浮点数相当
+        // 其次在不支持硬件浮点加速的CPU上, 该代码也能获得不错的性能
         let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(16_666_667);
         *control_flow = glutin::event_loop::ControlFlow::WaitUntil(next_frame_time);
 
@@ -160,3 +163,5 @@ fn main() {
     });
 }
 ```
+
+此时,你会得到一个具有纯色背景的窗口
